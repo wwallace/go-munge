@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"flag"
+	"unicode"
 )
 
 var (
@@ -18,6 +19,20 @@ var (
 	appendSpecial  = flag.Bool("a", false, "append special characters")
 	duplicate      = flag.Bool("d", false, "duplicate the word and apply munging techniques")
 )
+
+func swapCase(s string) string {
+	var result []rune
+	for _, r := range s {
+		if unicode.IsUpper(r) {
+			result = append(result, unicode.ToLower(r))
+		} else if unicode.IsLower(r) {
+			result = append(result, unicode.ToUpper(r))
+		} else {
+			result = append(result, r)
+		}
+	}
+	return string(result)
+}
 
 func l33t(word string) string {
 	substitutions := map[string]string{
@@ -34,61 +49,49 @@ func l33t(word string) string {
 	return word
 }
 
-func munge(word string) []string {
-	var result []string
-
-	// Add the original word to the result
-	result = append(result, word)
-
+func applyAllMungeTechniques(word string) []string {
+	techniques := []string{word}
 	if *capitalize {
-		word = strings.Title(word)
+		techniques = append(techniques, strings.Title(word))
 	}
+	if *substitute {
+		techniques = append(techniques, l33t(word))
+	}
+	
+	techniques = append(techniques, swapCase(word))
 
-	// Handle the munging techniques without duplication
-	result = applyMungingTechniques(word, result)
-
-	// If duplication is enabled, apply the munging techniques to the duplicated word
 	if *duplicate {
 		duplicatedWord := word + word
-		result = applyMungingTechniques(duplicatedWord, result)
+		techniques = append(techniques, duplicatedWord)
 	}
 
-	return result
+	return techniques
 }
 
-func applyMungingTechniques(word string, result []string) []string {
-	var tempResults []string
+func munge(word string, writer *bufio.Writer) {
+	specialChars := []string{"!", "@", "#", "$", "%"}
+	suffixes := []string{"123", "1", "69", "21", "22", "23", "2019", "2020", "2021", "2022", "2023", "1984", "1985", "1986","1987","1988"}
 
-	if *capitalize {
-		tempResults = append(tempResults, strings.Title(word))
-	}
+	for _, baseWord := range applyAllMungeTechniques(word) {
+		writer.WriteString(baseWord + "\n")
 
-	if *substitute {
-		tempResults = append(tempResults, l33t(word))
-	}
+		for _, suffix := range suffixes {
+			writer.WriteString(baseWord + suffix + "\n")
+		}
 
-	for _, tempResult := range tempResults {
-		if *prependSpecial || *appendSpecial {
-			specialChars := []string{"!", "@", "#", "$", "%"}
-
-			for _, char := range specialChars {
-				if *prependSpecial {
-					result = append(result, char+tempResult)
-				}
-
-				if *appendSpecial {
-					result = append(result, tempResult+char)
-				}
+		for _, char := range specialChars {
+			if *prependSpecial {
+				writer.WriteString(char + baseWord + "\n")
 			}
-		} else {
-			result = append(result, tempResult)
+			if *appendSpecial {
+				writer.WriteString(baseWord + char + "\n")
+			}
+			if *prependSpecial && *appendSpecial {
+				writer.WriteString(char + baseWord + char + "\n")
+			}
 		}
 	}
-
-	return result
 }
-
-
 
 func main() {
 	flag.Parse()
@@ -100,7 +103,6 @@ func main() {
 		*appendSpecial = true
 		*duplicate = true
 	}
-	
 
 	if *inputFile == "" || *outputFile == "" {
 		flag.Usage()
@@ -126,15 +128,8 @@ func main() {
 	scanner := bufio.NewScanner(inFile)
 	for scanner.Scan() {
 		word := scanner.Text()
-		mungedWords := munge(word)
-
-		for _, mungedWord := range mungedWords {
-			_, err := writer.WriteString(mungedWord + "\n")
-			if err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-		}
+		word = strings.ToLower(word)
+		munge(word, writer)
 	}
 
 	err = writer.Flush()
@@ -142,6 +137,6 @@ func main() {
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
-
 	fmt.Println("Munged wordlist saved to", *outputFile)
 }
+
