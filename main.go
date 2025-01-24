@@ -2,22 +2,25 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
-	"flag"
 	"unicode"
 )
 
 var (
-	inputFile      = flag.String("i", "", "input wordlist file")
-	outputFile     = flag.String("o", "", "output wordlist file")
-	all            = flag.Bool("all", true, "apply all munging techniques (default)")
-	capitalize     = flag.Bool("c", false, "capitalize the first letter")
-	substitute     = flag.Bool("cs", false, "substitute characters with l33t speak")
-	prependSpecial = flag.Bool("p", false, "prepend special characters")
-	appendSpecial  = flag.Bool("a", false, "append special characters")
-	duplicate      = flag.Bool("d", false, "duplicate the word and apply munging techniques")
+	singleWord     = flag.String("w", "", "Single word to munge")
+	inputFile      = flag.String("i", "", "Input wordlist file")
+	outputFile     = flag.String("o", "", "Output wordlist file")
+	all            = flag.Bool("all", false, "Enable all munging techniques")
+	capitalizeFlag = flag.Bool("c", false, "Capitalizization")
+	substituteFlag = flag.Bool("cs", false, "Use l33t substitutions")
+	prependFlag    = flag.Bool("p", false, "Prepend special chars")
+	appendFlag     = flag.Bool("a", false, "Append special chars")
+	duplicateFlag  = flag.Bool("d", false, "Duplicate word after munging")
+	insaneFlag     = flag.Bool("1ns4n3", false, "Generate maximum capitalization and l33t variations (single word only)")
+	wordSwapFlag   = flag.Bool("ws", false, "Generate word swaps for multi-word inputs")
 )
 
 func swapCase(s string) string {
@@ -34,60 +37,166 @@ func swapCase(s string) string {
 	return string(result)
 }
 
-func l33t(word string) string {
-	substitutions := map[string]string{
-		"a": "@", "A": "4",
-		"e": "3", "E": "3",
-		"i": "!", "I": "1",
-		"o": "0", "O": "0",
-		"s": "$", "S": "5",
+func generateCapitalizationVariations(word string) []string {
+	n := len(word)
+	var results []string
+	for i := 0; i < (1 << n); i++ {
+		var variation []rune
+		for j, char := range word {
+			if (i>>j)&1 == 1 {
+				variation = append(variation, unicode.ToUpper(char))
+			} else {
+				variation = append(variation, unicode.ToLower(char))
+			}
+		}
+		results = append(results, string(variation))
 	}
-
-	for k, v := range substitutions {
-		word = strings.Replace(word, k, v, -1)
-	}
-	return word
+	return results
 }
 
-func applyAllMungeTechniques(word string) []string {
-	techniques := []string{word}
-	if *capitalize {
-		techniques = append(techniques, strings.Title(word))
-	}
-	if *substitute {
-		techniques = append(techniques, l33t(word))
-	}
-	
-	techniques = append(techniques, swapCase(word))
-
-	if *duplicate {
-		duplicatedWord := word + word
-		techniques = append(techniques, duplicatedWord)
+func l33t(word string) []string {
+	var leetMap = map[rune][]string{
+		'a': {"@", "4", "a"},
+		'A': {"@", "4", "A"},
+		'e': {"3", "e"},
+		'E': {"3", "E"},
+		'i': {"!", "1", "i"},
+		'I': {"!", "1", "I"},
+		'o': {"0", "o"},
+		'O': {"0", "O"},
+		's': {"$", "5", "s"},
+		'S': {"$", "5", "S"},
 	}
 
-	return techniques
+	expansions := []string{""}
+	for _, ch := range word {
+		possibleReplacements, found := leetMap[ch]
+		if !found {
+			possibleReplacements = []string{string(ch)}
+		}
+		var newExpansions []string
+		for _, partial := range expansions {
+			for _, rep := range possibleReplacements {
+				newExpansions = append(newExpansions, partial+rep)
+			}
+		}
+		expansions = newExpansions
+	}
+	return expansions
+}
+
+func applyMunging(word string) []string {
+	var results []string
+	wordCount := len(strings.Fields(word))
+
+	if *insaneFlag {
+		if wordCount == 1 {
+			capitalizationVariations := generateCapitalizationVariations(word)
+			for _, variation := range capitalizationVariations {
+				results = append(results, l33t(variation)...) // Apply l33t to each capitalization variation
+			}
+		} else {
+			fmt.Println("ERROR: --1ns4n3 flag can only be used with single-word inputs.")
+			os.Exit(1)
+		}
+	} else {
+		if *capitalizeFlag {
+			if wordCount <= 5 {
+				capitalizationVariations := generateCapitalizationVariations(word)
+				for _, variation := range capitalizationVariations {
+					if *substituteFlag {
+						results = append(results, l33t(variation)...) // Apply l33t to each capitalization variation
+					} else {
+						results = append(results, variation)
+					}
+				}
+			} else {
+				results = append(results, strings.Title(word)) // Standard capitalization
+			}
+		}
+
+		if *substituteFlag && wordCount > 5 {
+			results = append(results, l33t(word)...) // Leet substitutions only if capitalization variations are skipped
+		}
+	}
+
+	results = append(results, swapCase(word)) // Swap case
+
+	if *duplicateFlag {
+		results = append(results, word+word)
+	}
+
+	if strings.Contains(word, " ") {
+		results = append(results, strings.ReplaceAll(word, " ", ""))
+		results = append(results, strings.ReplaceAll(word, " ", "_"))
+		results = append(results, strings.ReplaceAll(word, " ", "."))
+	}
+
+	return results
+}
+
+func generateWordSwaps(word string) []string {
+	fields := strings.Fields(word)
+	if len(fields) < 2 {
+		return nil // No swap possible for single-word inputs
+	}
+	var swaps []string
+	for i := 0; i < len(fields); i++ {
+		for j := i + 1; j < len(fields); j++ {
+			swapped := make([]string, len(fields))
+			copy(swapped, fields)
+			swapped[i], swapped[j] = swapped[j], swapped[i]
+			swaps = append(swaps, strings.Join(swapped, " "))
+		}
+	}
+	return swaps
 }
 
 func munge(word string, writer *bufio.Writer) {
-	specialChars := []string{"!", "@", "#", "$", "%"}
-	suffixes := []string{"123", "1", "69", "21", "22", "23", "2019", "2020", "2021", "2022", "2023", "1984", "1985", "1986","1987","1988"}
-
-	for _, baseWord := range applyAllMungeTechniques(word) {
-		writer.WriteString(baseWord + "\n")
-
-		for _, suffix := range suffixes {
-			writer.WriteString(baseWord + suffix + "\n")
+	wordsToProcess := []string{word}
+	if *wordSwapFlag {
+		wordSwaps := generateWordSwaps(word)
+		if wordSwaps != nil {
+			wordsToProcess = append(wordsToProcess, wordSwaps...)
 		}
+	}
+	numbers := []string{
+		"20", "21", "22", "23", "24", "25", "26",
+		"1", "12", "21", "123", "321", "1234", "4321", "12345", "54321", "123456", "654321", "1234567", "7654321", "12345678", "87654321", "123456789", "987654321",
+		"2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025", "2026",
+	}
+	specialChars := []string{
+		" ", "_", ".", "*", "&", "&&",
+		"!", "!!", "!!!", "!!!!", "!!!!!",
+		"@", "@@", "@@@",
+		"#", "##", "###",
+		"$", "$$", "$$$", "$$$$", "$$$$$",
+		"!@", "!@#", "!@#$", "!@#$%", "$#@!", "#@!", "@!",
+	}
 
-		for _, char := range specialChars {
-			if *prependSpecial {
-				writer.WriteString(char + baseWord + "\n")
-			}
-			if *appendSpecial {
-				writer.WriteString(baseWord + char + "\n")
-			}
-			if *prependSpecial && *appendSpecial {
-				writer.WriteString(char + baseWord + char + "\n")
+	for _, baseWord := range wordsToProcess {
+		for _, base := range applyMunging(baseWord) {
+			writer.WriteString(base + "\n")
+
+			for _, num := range numbers {
+				writer.WriteString(base + num + "\n")
+
+				for _, char := range specialChars {
+					if *prependFlag {
+						writer.WriteString(num + char + base + "\n")
+						writer.WriteString(char + num + base + "\n")
+					}
+					if *appendFlag {
+						writer.WriteString(base + num + char + "\n")
+						writer.WriteString(base + char + num + "\n")
+					}
+					if *prependFlag && *appendFlag {
+						writer.WriteString(char + num + base + num + char + "\n")
+						writer.WriteString(char + num + base + char + num + "\n")
+						writer.WriteString(num + char + base + char + num + "\n")
+						writer.WriteString(num + char + base + num + char + "\n")
+					}
+				}
 			}
 		}
 	}
@@ -97,24 +206,22 @@ func main() {
 	flag.Parse()
 
 	if *all {
-		*capitalize = true
-		*substitute = true
-		*prependSpecial = true
-		*appendSpecial = true
-		*duplicate = true
-	}
-
-	if *inputFile == "" || *outputFile == "" {
+		*capitalizeFlag = true
+		*substituteFlag = true
+		*prependFlag = true
+		*appendFlag = true
+		*duplicateFlag = true
+		*wordSwapFlag = true
+	} else if !*capitalizeFlag && !*substituteFlag && !*prependFlag && !*appendFlag && !*duplicateFlag && !*insaneFlag && !*wordSwapFlag {
+		fmt.Println("ERROR: Please specify at least one option for modification (or use -all).")
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	inFile, err := os.Open(*inputFile)
-	if err != nil {
-		fmt.Println("Error:", err)
+	if *outputFile == "" {
+		fmt.Println("ERROR: No output file specified. Use -o <file>")
 		os.Exit(1)
 	}
-	defer inFile.Close()
 
 	outFile, err := os.Create(*outputFile)
 	if err != nil {
@@ -122,14 +229,34 @@ func main() {
 		os.Exit(1)
 	}
 	defer outFile.Close()
-
 	writer := bufio.NewWriter(outFile)
 
-	scanner := bufio.NewScanner(inFile)
-	for scanner.Scan() {
-		word := scanner.Text()
-		word = strings.ToLower(word)
-		munge(word, writer)
+	if *singleWord != "" {
+		munge(*singleWord, writer)
+	}
+
+	if *inputFile != "" {
+		inFile, err := os.Open(*inputFile)
+		if err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+		defer inFile.Close()
+
+		scanner := bufio.NewScanner(inFile)
+		for scanner.Scan() {
+			munge(scanner.Text(), writer)
+		}
+		if err = scanner.Err(); err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+	}
+
+	if *singleWord == "" && *inputFile == "" {
+		fmt.Println("ERROR: Provide a single word with -w or an input file with -i.")
+		flag.Usage()
+		os.Exit(1)
 	}
 
 	err = writer.Flush()
@@ -137,6 +264,6 @@ func main() {
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
+
 	fmt.Println("Munged wordlist saved to", *outputFile)
 }
-
