@@ -16,8 +16,9 @@ var (
 	singleWord     = flag.String("w", "", "Single word to munge")
 	inputFile      = flag.String("i", "", "Input wordlist file")
 	outputFile     = flag.String("o", "", "Output wordlist file")
-	all            = flag.Bool("all", false, "Enable all munging techniques")
+	all            = flag.Bool("all", false, "Enable all munging techniques (EXCEPT INSANE and Case Variations)")
 	capitalizeFlag = flag.Bool("c", false, "Capitalizization")
+	caseVariations = flag.Bool("cv", false, "Modify case of each char in word (Use on small word lists only)")
 	substituteFlag = flag.Bool("cs", false, "Use l33t substitutions")
 	prependFlag    = flag.Bool("p", false, "Prepend special chars")
 	appendFlag     = flag.Bool("a", false, "Append special chars")
@@ -52,7 +53,9 @@ func generateCapitalizationVariations(word string) []string {
 				variation = append(variation, unicode.ToLower(char))
 			}
 		}
-		results = append(results, string(variation))
+		if (string(variation) != word){
+			results = append(results, string(variation))
+		}
 	}
 	return results
 }
@@ -105,6 +108,10 @@ func applyMunging(word string) []string {
 		if *capitalizeFlag {
 			results = append(results, strings.Title(word)) // Standard capitalization
 			results = append(results, swapCase(word)) // Swap case
+		}
+
+		if *caseVariations {
+			results = append(results, generateCapitalizationVariations(word)...) // modify case of each character
 		}
 
 		if *substituteFlag  {
@@ -218,7 +225,7 @@ func main() {
 		*appendFlag = true
 		*duplicateFlag = true
 		*wordSwapFlag = true
-	} else if !*capitalizeFlag && !*substituteFlag && !*prependFlag && !*appendFlag && !*duplicateFlag && !*insaneFlag && !*wordSwapFlag {
+	} else if !*capitalizeFlag && !*substituteFlag && !*prependFlag && !*appendFlag && !*duplicateFlag && !*insaneFlag && !*wordSwapFlag && !*caseVariations{
 		fmt.Println("ERROR: Please specify at least one option for modification (or use -all).")
 		flag.Usage()
 		os.Exit(1)
