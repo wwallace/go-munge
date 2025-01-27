@@ -7,6 +7,9 @@ import (
 	"os"
 	"strings"
 	"unicode"
+	"encoding/hex"
+	"log"
+	"regexp"
 )
 
 var (
@@ -56,16 +59,16 @@ func generateCapitalizationVariations(word string) []string {
 
 func l33t(word string) []string {
 	var leetMap = map[rune][]string{
-		'a': {"@", "4", "a"},
-		'A': {"@", "4", "A"},
-		'e': {"3", "e"},
-		'E': {"3", "E"},
-		'i': {"!", "1", "i"},
-		'I': {"!", "1", "I"},
-		'o': {"0", "o"},
-		'O': {"0", "O"},
-		's': {"$", "5", "s"},
-		'S': {"$", "5", "S"},
+		'a': {"@", "4",},
+		'A': {"@", "4"},
+		'e': {"3"},
+		'E': {"3"},
+		'i': {"!", "1"},
+		'I': {"!", "1"},
+		'o': {"0"},
+		'O': {"0"},
+		's': {"$", "5"},
+		'S': {"$", "5"},
 	}
 
 	expansions := []string{""}
@@ -87,10 +90,9 @@ func l33t(word string) []string {
 
 func applyMunging(word string) []string {
 	var results []string
-	wordCount := len(strings.Fields(word))
 
 	if *insaneFlag {
-		if wordCount == 1 {
+		if *singleWord != "" {
 			capitalizationVariations := generateCapitalizationVariations(word)
 			for _, variation := range capitalizationVariations {
 				results = append(results, l33t(variation)...) // Apply l33t to each capitalization variation
@@ -101,26 +103,14 @@ func applyMunging(word string) []string {
 		}
 	} else {
 		if *capitalizeFlag {
-			if wordCount <= 5 {
-				capitalizationVariations := generateCapitalizationVariations(word)
-				for _, variation := range capitalizationVariations {
-					if *substituteFlag {
-						results = append(results, l33t(variation)...) // Apply l33t to each capitalization variation
-					} else {
-						results = append(results, variation)
-					}
-				}
-			} else {
-				results = append(results, strings.Title(word)) // Standard capitalization
-			}
+			results = append(results, strings.Title(word)) // Standard capitalization
+			results = append(results, swapCase(word)) // Swap case
 		}
 
-		if *substituteFlag && wordCount > 5 {
+		if *substituteFlag  {
 			results = append(results, l33t(word)...) // Leet substitutions only if capitalization variations are skipped
 		}
 	}
-
-	results = append(results, swapCase(word)) // Swap case
 
 	if *duplicateFlag {
 		results = append(results, word+word)
@@ -128,7 +118,7 @@ func applyMunging(word string) []string {
 
 	if strings.Contains(word, " ") {
 		results = append(results, strings.ReplaceAll(word, " ", ""))
-		results = append(results, strings.ReplaceAll(word, " ", "_"))
+		results = append(results, strings.ReplaceAll(word, " ", "^"))
 		results = append(results, strings.ReplaceAll(word, " ", "."))
 	}
 
@@ -152,14 +142,7 @@ func generateWordSwaps(word string) []string {
 	return swaps
 }
 
-func munge(word string, writer *bufio.Writer) {
-	wordsToProcess := []string{word}
-	if *wordSwapFlag {
-		wordSwaps := generateWordSwaps(word)
-		if wordSwaps != nil {
-			wordsToProcess = append(wordsToProcess, wordSwaps...)
-		}
-	}
+func appendPrepend(base string, writer *bufio.Writer){
 	numbers := []string{
 		"20", "21", "22", "23", "24", "25", "26",
 		"1", "12", "21", "123", "321", "1234", "4321", "12345", "54321", "123456", "654321", "1234567", "7654321", "12345678", "87654321", "123456789", "987654321",
@@ -174,29 +157,52 @@ func munge(word string, writer *bufio.Writer) {
 		"!@", "!@#", "!@#$", "!@#$%", "$#@!", "#@!", "@!",
 	}
 
+	for _, num := range numbers {
+		for _, char := range specialChars {
+			if *prependFlag {
+				writer.WriteString(num + base + "\n")
+				writer.WriteString(num + char + base + "\n")
+				writer.WriteString(char + num + base + "\n")
+			}
+			if *appendFlag {
+				writer.WriteString(base + num + "\n")
+				writer.WriteString(base + num + char + "\n")
+				writer.WriteString(base + char + num + "\n")
+			}
+			if *prependFlag && *appendFlag {
+				writer.WriteString(char + num + base + num + char + "\n")
+				writer.WriteString(char + num + base + char + num + "\n")
+				writer.WriteString(num + char + base + char + num + "\n")
+				writer.WriteString(num + char + base + num + char + "\n")
+			}
+		}
+	}
+}
+
+func munge(word string, writer *bufio.Writer) {
+	if strings.HasPrefix(word, "$HEX[") {
+		// Decode the hex string to bytes
+		re := regexp.MustCompile(`\[(.*?)\]`)
+		match := re.FindStringSubmatch(word)
+		bytes, err := hex.DecodeString(match[1])
+		if err != nil {
+			log.Print(err)
+		}
+		word = string(bytes)
+	}
+	wordsToProcess := []string{word}
+	if *wordSwapFlag {
+		wordSwaps := generateWordSwaps(word)
+		if wordSwaps != nil {
+			wordsToProcess = append(wordsToProcess, wordSwaps...)
+		}
+	}
+	writer.WriteString(word + "\n")
 	for _, baseWord := range wordsToProcess {
 		for _, base := range applyMunging(baseWord) {
 			writer.WriteString(base + "\n")
-
-			for _, num := range numbers {
-				writer.WriteString(base + num + "\n")
-
-				for _, char := range specialChars {
-					if *prependFlag {
-						writer.WriteString(num + char + base + "\n")
-						writer.WriteString(char + num + base + "\n")
-					}
-					if *appendFlag {
-						writer.WriteString(base + num + char + "\n")
-						writer.WriteString(base + char + num + "\n")
-					}
-					if *prependFlag && *appendFlag {
-						writer.WriteString(char + num + base + num + char + "\n")
-						writer.WriteString(char + num + base + char + num + "\n")
-						writer.WriteString(num + char + base + char + num + "\n")
-						writer.WriteString(num + char + base + num + char + "\n")
-					}
-				}
+			if (*appendFlag || *prependFlag){
+				appendPrepend(base, writer)
 			}
 		}
 	}
